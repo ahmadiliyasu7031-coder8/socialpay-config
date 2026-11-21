@@ -1,110 +1,70 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Opening SocialPay...</title>
   <meta name="theme-color" content="#0b7a4b">
+  <title>Opening SocialPay...</title>
   <style>
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #f5f8f6;
-      font-family: Arial, sans-serif;
-      color: #18352a;
-      text-align: center;
-    }
-    .box {
-      width: 85%;
-      max-width: 380px;
-      padding: 30px 20px;
-      background: white;
-      border-radius: 16px;
-      box-shadow: 0 5px 25px rgba(0,0,0,.07);
-    }
-    h2 { color: #087a4b; }
-    p { line-height: 1.6; }
-    .loader {
-      width: 35px;
-      height: 35px;
-      margin: 20px auto;
-      border: 4px solid #dcece4;
-      border-top-color: #087a4b;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    button {
-      padding: 12px 22px;
-      border: 0;
-      border-radius: 8px;
-      background: #087a4b;
-      color: white;
-      font-size: 15px;
-      cursor: pointer;
-    }
+    body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f8f6;font-family:Arial,sans-serif;color:#18352a;text-align:center}
+    .box{width:85%;max-width:380px;padding:30px 20px;background:#fff;border-radius:16px;box-shadow:0 5px 25px rgba(0,0,0,.07)}
+    h2{color:#087a4b}.loader{width:35px;height:35px;margin:20px auto;border:4px solid #dcece4;border-top-color:#087a4b;border-radius:50%;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    button{padding:12px 22px;border:0;border-radius:8px;background:#087a4b;color:#fff;font-size:15px;cursor:pointer}
   </style>
 </head>
 <body>
-  <div class="box">
+  <main class="box">
     <h2>SocialPay</h2>
     <div class="loader" id="loader"></div>
-    <p id="message">Please wait, opening SocialPay...</p>
-    <button id="retry" hidden onclick="startRedirect()">Try Again</button>
-  </div>
-
+    <p id="message" aria-live="polite">Please wait, opening SocialPay...</p>
+    <button id="retry" hidden type="button" onclick="startRedirect()">Try Again</button>
+  </main>
   <script>
-    async function startRedirect() {
-      const message = document.getElementById("message");
-      const loader = document.getElementById("loader");
-      const retry = document.getElementById("retry");
+    async function startRedirect(){
+      const message=document.getElementById('message');
+      const loader=document.getElementById('loader');
+      const retry=document.getElementById('retry');
+      retry.hidden=true; loader.style.display='block';
+      message.textContent='Please wait, opening SocialPay...';
+      try{
+        const response=await fetch('./config.json?v='+Date.now(),{cache:'no-store'});
+        if(!response.ok) throw new Error('Configuration could not be loaded.');
+        const config=await response.json();
+        const server=new URL(config.server_url);
+        if(server.protocol!=='https:' || server.username || server.password) throw new Error('Invalid server address.');
 
-      retry.hidden = true;
-      loader.style.display = "block";
-      message.textContent = "Please wait, opening SocialPay...";
+        const incoming=new URLSearchParams(window.location.search);
+        const ref=incoming.get('ref');
+        const requestedPath=incoming.get('path') || incoming.get('to');
+        let destination;
 
-      try {
-        const response = await fetch("./config.json?v=" + Date.now(), {
-          cache: "no-store"
-        });
-
-        if (!response.ok) {
-          throw new Error("Configuration could not be loaded.");
+        if(requestedPath){
+          // Only allow a relative path on the configured SocialPay server.
+          if(!requestedPath.startsWith('/') || requestedPath.startsWith('//') || requestedPath.includes('\\'))
+            throw new Error('Invalid destination path.');
+          destination=new URL(requestedPath,server.origin);
+          if(destination.origin!==server.origin) throw new Error('Invalid destination host.');
+        }else if(ref){
+          if(!/^[A-Za-z0-9_-]{1,100}$/.test(ref)) throw new Error('Invalid referral code.');
+          destination=new URL('/r/'+encodeURIComponent(ref),server.origin);
+        }else{
+          destination=new URL('/',server.origin);
         }
 
-        const config = await response.json();
-        const serverUrl = new URL(config.server_url);
-
-        if (serverUrl.protocol !== "https:") {
-          throw new Error("Invalid server address.");
+        // Carry all original query values forward, excluding our routing controls.
+        for(const [key,value] of incoming.entries()){
+          if(key==='path' || key==='to') continue;
+          destination.searchParams.set(key,value);
         }
-
-        const referralCode = new URLSearchParams(
-          window.location.search
-        ).get("ref");
-
-        if (!referralCode || !/^[A-Za-z0-9_-]{1,100}$/.test(referralCode)) {
-          throw new Error("Referral code is missing or invalid.");
-        }
-
-        window.location.replace(
-          serverUrl.origin + "/r/" + encodeURIComponent(referralCode)
-        );
-
-      } catch (error) {
-        loader.style.display = "none";
-        message.textContent =
-          "Unable to open SocialPay. Please check your internet connection and try again.";
-        retry.hidden = false;
+        if(ref && !destination.pathname.startsWith('/r/')) destination.searchParams.set('ref',ref);
+        window.location.replace(destination.toString());
+      }catch(error){
+        loader.style.display='none';
+        message.textContent='Unable to open SocialPay. Please check your internet connection and try again.';
+        retry.hidden=false;
       }
     }
-
     startRedirect();
   </script>
 </body>
